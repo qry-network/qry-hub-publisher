@@ -6,7 +6,7 @@ export class QRYPublisher {
     private opts: QRYPublisherOptions;
 
     // instance keys
-    private privateKey!: PrivateKey;
+    private privateKey?: PrivateKey;
     publicKey!: PublicKey;
     socket?: SocketIO;
 
@@ -22,9 +22,6 @@ export class QRYPublisher {
         this.onConnect = options.onConnect;
         this.onMetadataRequest = options.onMetadataRequest;
         this.metadata = options.metadata;
-        if (!this.opts.instancePrivateKey) {
-            throw new Error('Instance private key is required');
-        }
         this.checkPrivateKey();
     }
 
@@ -44,47 +41,50 @@ export class QRYPublisher {
     }
 
     private checkPrivateKey() {
-
-        try {
-            this.privateKey = PrivateKey.fromString(this.opts.instancePrivateKey);
-        } catch (e: any) {
-            console.log(`FATAL ERROR: ${e.message}`);
-            // process.exit();
-        }
-
-        if (this.privateKey) {
-            this.publicKey = this.privateKey.toPublic();
+        if (this.opts.instancePrivateKey) {
+            try {
+                this.privateKey = PrivateKey.fromString(this.opts.instancePrivateKey);
+            } catch (e: any) {
+                console.log(`FATAL ERROR: ${e.message}`);
+            }
+            if (this.privateKey) {
+                this.publicKey = this.privateKey.toPublic();
+            }
         }
     }
 
     async connect() {
-        // request challenge from hub based on the public key
-        const challenge = await this.requestChallenge();
-        if (!challenge) {
-            console.log('Failed to get challenge from hub');
-            return;
+
+        if (this.privateKey) {
+            // request challenge from hub based on the public key
+            const challenge = await this.requestChallenge();
+            if (!challenge) {
+                console.log('Failed to get challenge from hub');
+                return;
+            }
+            // send signature to hub for verification
+            const token = await this.requestSession(challenge);
+            if (!token) {
+                console.log('Failed to get session token from hub');
+                return;
+            }
+            this.sessionToken = token;
         }
-        // send signature to hub for verification
-        const token = await this.requestSession(challenge);
-        if (!token) {
-            console.log('Failed to get session token from hub');
-            return;
-        }
 
-        this.sessionToken = token;
+        const socketUrl = this.opts.publishUrl;
+        const socketPath = (this.opts.publishPath || '/ws/providers/') + 'socket.io';
+        console.log(`Connecting to ${socketUrl} with path ${socketPath}`);
 
-        const protocol = this.opts.hubUrl.startsWith('localhost') ? 'ws' : 'wss';
-
-        this.socket = io(`${protocol}://${this.opts.hubUrl}`, {
-            path: this.opts.hubUrl.startsWith('localhost') ? undefined : '/ws/providers/socket.io',
+        this.socket = io(socketUrl, {
+            path: socketPath,
             transports: ['websocket'],
             reconnectionDelay: 3000,
-            auth: (cb: any) => {
+            auth: this.privateKey ? (cb: any) => {
                 cb({
                     publicKey: this.publicKey.toString(),
                     token: this.sessionToken
                 });
-            }
+            } : undefined
         });
 
         this.socket.on('connect', () => {
@@ -132,11 +132,14 @@ export class QRYPublisher {
     }
 
     private async requestSession(challenge: string) {
+        if (!this.privateKey) {
+            return;
+        }
         // console.log('Sending signature to hub...');
         const signature = this.privateKey.signMessage(challenge);
-        let url = `http://${this.opts.hubUrl}/session`;
-        if (!this.opts.hubUrl.startsWith('localhost')) {
-            url = `https://${this.opts.hubUrl}/ws/providers/session`;
+        let url = `http://${this.opts.publishUrl}/session`;
+        if (!this.opts.publishUrl.startsWith('localhost')) {
+            url = `https://${this.opts.publishUrl}/ws/providers/session`;
         }
         const response = await fetch(url, {
             method: 'GET',
@@ -155,9 +158,9 @@ export class QRYPublisher {
 
     private async requestChallenge() {
         // console.log('Requesting challenge from hub...');
-        let url = `http://${this.opts.hubUrl}/challenge`;
-        if (!this.opts.hubUrl.startsWith('localhost')) {
-            url = `https://${this.opts.hubUrl}/ws/providers/challenge`;
+        let url = `http://${this.opts.publishUrl}/challenge`;
+        if (!this.opts.publishUrl.startsWith('localhost')) {
+            url = `https://${this.opts.publishUrl}/ws/providers/challenge`;
         }
         const response = await fetch(url, {
             method: 'GET',

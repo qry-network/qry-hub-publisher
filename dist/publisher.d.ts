@@ -3,7 +3,7 @@ import { Socket as SocketIO } from "socket.io-client";
 import { QRYPublisherOptions } from "./interfaces.js";
 export declare class QRYPublisher {
     private opts;
-    private privateKey;
+    private privateKey?;
     publicKey: PublicKey;
     socket?: SocketIO;
     sessionToken?: string;

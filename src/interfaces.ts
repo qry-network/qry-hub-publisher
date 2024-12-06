@@ -1,6 +1,7 @@
 export interface QRYPublisherOptions {
-    hubUrl: string;
-    instancePrivateKey: string;
+    publishPath?: string;
+    publishUrl: string;
+    instancePrivateKey?: string;
     metadata?: any;
     onConnect?: () => void;
     onMetadataRequest?: () => void;
